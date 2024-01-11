@@ -1,7 +1,18 @@
-#Group Project FOGEL
 
+# Harmony in Progress: Navigating the Complex Landscape of Energy, Emissions, and Economic Growth
 
+### Group Project FOGEL
+- Giovanna Mariotto
+- Abheendra Sibu
+- Sameer Sarwana
+- Javokhirbek Javokhirbek
+- Srushti Bhonde
 
+### Abstract:
+This article embarks on a comprehensive exploration of the intricate relationship between energy dynamics, carbon emissions, and economic growth. Leveraging two elucidating graphs, the narrative unfolds, weaving together insights from per capita electricity consumption, CO2 emissions, and the success stories – or challenges – of decoupling emissions from GDP growth. Observations and questions guide our journey, shedding light on the evolving tapestry of global sustainability.
+
+### Introduction:
+In an era where the pursuit of sustainability intertwines with the demands of economic progress, our focus shifts to deciphering the complex narrative presented by two compelling graphs. The first, a kaleidoscope of colors, unveils the carbon footprints of nations, intricately linked to their energy choices. Complementing this, the second graph introduces us to the champions and strugglers in the realm of decoupling, a phenomenon where economic prosperity stands hand in hand with reduced emissions.
 
 
 ```{r}
@@ -18,6 +29,8 @@ library(here)
 library(scales)
 library(ggtext)
 library(viridis)
+library(ggrepel)
+library(countrycode)
 
 
 
@@ -61,6 +74,16 @@ co2_percap <- wb_data(country = "countries_only",
          co2percap = value)
 
 
+energy_long <- energy %>% 
+  select(1:12) %>% 
+  pivot_longer(cols = 4:12,
+               names_to = 'source',
+               values_to = 'value') %>% 
+  drop_na(value) %>% 
+  drop_na(iso_code)
+
+  
+  
 # Download data for GDP per capita  https://data.worldbank.org/indicator/NY.GDP.PCAP.PP.KD
 gdp_percap <- wb_data(country = "countries_only", 
                       indicator = "NY.GDP.PCAP.PP.KD", 
@@ -87,7 +110,7 @@ join2 <- join1 %>%
   left_join(energy, by = c("country", "year")) 
 
 
-library(countrycode)
+
 join2 <- join2 %>% 
   mutate(
     continent = countrycode(country, 
@@ -119,19 +142,47 @@ join2 <- join2 %>%
          country = country.x) %>% 
   select(-c(indicator_id, indicator, iso2c, country.y))
 
+
+top_gdp_countries<-join2 %>%
+  filter(!is.na(country) | !is.na(co2percap) | !is.na(GDPpercap), year == 1990 | year == 2019, population>1500000) %>%
+  arrange(iso3c, year) %>%
+  group_by(iso3c) %>%
+  filter(n() == 2) %>%  
+  ungroup() %>%
+  mutate(
+    prev_year_co2pc = 100 * (co2percap - lag(co2percap)) / co2percap,
+    prev_year_gpd2pc = 100 * (GDPpercap - lag(GDPpercap)) / GDPpercap
+  ) %>%
+  mutate(diff = abs(prev_year_co2pc) + abs(prev_year_gpd2pc)) %>%
+  filter(year == 2019, prev_year_gpd2pc >= 0) %>%
+  arrange(desc(prev_year_gpd2pc)) %>%
+  # slice(1:20)%>% 
+  arrange(prev_year_gpd2pc)
+top_gdp_countries$country <- factor(top_gdp_countries$country, levels = top_gdp_countries$country)
+top_gdp_countries <- top_gdp_countries %>%
+  filter(prev_year_co2pc<0)%>%
+  mutate(difference = prev_year_gpd2pc - prev_year_co2pc) %>%
+  arrange(desc(difference))
+
+countries<- top_gdp_countries%>%
+  head(12)
+
+
 ```
 
 
 
+#### Renewables as Catalysts for Emission Mitigation:
+A recurring theme unfolds as nations embracing renewables boast lower CO2 emissions. The juxtaposition of larger economies like South Korea and the USA prompts contemplation on the feasibility of transitioning to cleaner energy sources.
+The graph clearly illustrates that numerous countries with high energy consumption predominantly rely on gas and coal as their primary energy sources. This reliance may be attributed to a variety of factors, including the availability of abundant natural resources, established infrastructure supporting the extraction and use of fossil fuels, and economic considerations such as cost and the potential impact on industries and employment. Additionally, transitioning to alternative energy sources often requires substantial investment and policy shifts, which may pose challenges for some nations.
 
-
-# Carbon Intensity of Electricity consumption
 
 ```{r}
+
 library(reshape2)
 
 energy_cols = c('biofuel','gas','coal','wind','solar','hydro','other_renewable', 'nuclear', 'oil')
-id_cols= c('country','year','energy_per_capita','energy_per_gdp','per_capita_electricity','iso_code')
+id_cols = c('country','year','energy_per_capita','energy_per_gdp','per_capita_electricity','iso_code')
 
 long_data <- pivot_longer(
   data = energy,
@@ -139,7 +190,7 @@ long_data <- pivot_longer(
   names_to = "energy_source",
   values_to = "value"
 )
- 
+
 grouped <- long_data %>%
   group_by(year, country) %>%
   summarise(max_source= max(value))
@@ -156,47 +207,173 @@ join3 <- join2
   join3$max_value <- do.call(pmax, join2[,energy_cols])
   join3$main_source <- names(join2[, energy_cols])[max.col(join2[, energy_cols], "first")]
 
-class_colors <- c("hydro" = "blue", "nuclear" = "green", "biofuel"="yellow", "gas"="orange","solar"="grey", "wind"="purple","oil"="red","other_renewable"="pink","coal"="black")
+class_colors <- c("hydro" = "blue", "nuclear" = "green", "biofuel"="#f0e442", "gas"="orange","solar"="grey", "wind"="purple","oil"="red","other_renewable"="pink","coal"="black")
 
-library(ggrepel)
-library(viridis)
 
 # per capita kwh vs co2 per cap
-co2_kwh_plot <- join3  %>% 
-  drop_na(per_capita_electricity, main_source, co2percap) %>% 
-  filter(year == 2020, 
-         population > 10e6) %>% 
+suppressWarnings({
+  co2_kwh_plot <- join3  %>%
+  drop_na(per_capita_electricity, main_source, co2percap) %>%
+  filter(year == 2020,
+         population > 10e6) %>%
   ggplot()+
-  aes(x=per_capita_electricity/365, y = co2percap, fill= main_source,
-        size = population^2, 
+  aes(x=per_capita_electricity/365, y = co2percap, 
+        size = population^2,
       label = country,
       color= main_source ) +
-  geom_point(alpha = 0.8)+  
-  #scale_fill_manual(values = class_colors) + 
-  scale_color_manual(values = class_colors)+
+  geom_point(alpha = 0.8)+
+  scale_color_manual(values = class_colors,
+                      labels = c("Coal", "Gas", "Hydro", "Nuclear", "Oil", "Other Renewables"))+
   labs(
     title = "Coal and gas remain the main energy sources in many energy-intensive countries",
     subtitle = "2019 kWh per capita, countries with population > 10m",
     x = "CO2 per capita emmissions",
-    y = "kWh per capita per day"
+    y = "kWh per capita per day",
+    color="Main Source of Energy",
+    size="Population in Millions"
+  )+
+   scale_size_continuous(
+    labels = function(x) sprintf("%.1f", x / 1e+16),
+    name = "Population in Millions"
   )+
   coord_flip()+
-  theme_minimal()+
-  geom_text_repel(size = 4)+
- # theme(legend.position = "none")+
-  # scale_colour_viridis(discrete = T,
-  #                      option = "D")+
+  theme_light()+
+  geom_text_repel(size = 4, max.overlaps = 9 )+
   theme(
     plot.title.position = "plot",
     plot.title = element_textbox_simple(size=12),
     axis.text = element_text(size=9)
     ) +
-  NULL   
+  NULL
+})
+
 
 co2_kwh_plot
 ```
 
+The graph presents a clear visual representation of the positive correlation between daily per capita kWh consumption and CO2 emissions per capita among countries with populations exceeding 10 million. This trend suggests that as the consumption of energy increases, so does the emission of CO2 on a per capita basis. Specifically, countries that are depicted further to the right, indicating higher kWh consumption per capita, such as the United States and Canada, also tend to have higher CO2 emissions per capita. This relationship highlights the link between energy use, particularly from non-renewable sources such as coal and gas, and the corresponding carbon footprint. It underscores the challenges faced in balancing energy needs with environmental impact, especially in more industrialized nations where energy consumption is substantial. The graph also implies that reducing reliance on fossil fuels and increasing energy efficiency, along with a shift towards renewable sources, could play critical roles in mitigating CO2 emissions globally.
 
+
+
+### Champions and Strugglers in Decoupling:
+
+```{r}
+
+# Step 2: Check the order of the first few rows to ensure they are sorted correctly.
+# head(maxGDP)
+
+# Step 3: Now pass the sorted dataframe to ggplot.
+plot_top_gdps <- ggplot(top_gdp_countries, aes(x = reorder(country, difference), y = prev_year_co2pc)) +
+  geom_segment(aes(xend = country, y = prev_year_co2pc, yend = prev_year_gpd2pc), 
+               color = "grey", size = 2.5, alpha = 0.5) +
+  geom_point(aes(y = prev_year_co2pc), color = "orange", size = 2.5) +
+  geom_point(aes(y = prev_year_gpd2pc), color = "lightblue", size = 2.5) +
+  geom_hline(yintercept = 0, color = "black", size = 0.5, alpha=0.3) +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Countries which decoupled the most CO2 emissions from GDP",
+       subtitle = "Percent changes CO2 emissions vs GDP Growth",
+       y = "", x = "") +
+  theme(axis.text.x = element_text(size = 6),
+        axis.text.y = element_text(size = 6),
+        axis.title.x = element_text(size = 6)) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  geom_text(aes(y = prev_year_co2pc, label = round(prev_year_co2pc)), 
+            hjust = 3, color = "orange", size = 2) +
+  geom_text(aes(y = prev_year_gpd2pc, label = round(prev_year_gpd2pc)), 
+            hjust = -2, color = "lightblue", size = 2)
+
+plot_top_gdps
+energy_cols = c('biofuel','gas','coal','wind','solar','hydro','other_renewable', 'nuclear', 'oil')
+
+long_data <- pivot_longer(
+  data = energy,
+  cols = energy_cols,
+  names_to = "energy_source",
+  values_to = "value"
+)
+
+```
+Regarding the decouple of CO2, we can see that Kyrgyzstan stands as an outlining leader in the list with ~250% CO2 decrease even though it showed very tiny GDP growth with 2%. Canada, Japan and Austria are at the bottom with 1%, 4%, 4% respectively. From the graph it can be easily noticed that Armenia performed very well with showing great balance in both carbon emission(154%) and gdp growth(64%).
+
+These examples suggest that it is possible for countries to achieve economic growth without corresponding increases in CO2 emissions, which is a crucial aspect of sustainable development and a key to combating climate change. Each country's context, such as the starting point of industrial development, availability of renewable resources, and government policies, plays a significant role in determining how effectively it can decouple emissions from economic growth.
+
+## Countries Energy mix
+
+```{r}
+
+top_gdp_countries<-join2 %>%
+  filter(!is.na(country) | !is.na(co2percap) | !is.na(GDPpercap), year == 1990 | year == 2019, population>1500000) %>%
+  arrange(iso3c, year) %>%
+  group_by(iso3c) %>%
+  filter(n() == 2) %>%  
+  ungroup() %>%
+  mutate(
+    prev_year_co2pc = 100 * (co2percap - lag(co2percap)) / co2percap,
+    prev_year_gpd2pc = 100 * (GDPpercap - lag(GDPpercap)) / GDPpercap
+  ) %>%
+  mutate(diff = abs(prev_year_co2pc) + abs(prev_year_gpd2pc)) %>%
+  filter(year == 2019, prev_year_gpd2pc >= 0) %>%
+  arrange(desc(prev_year_gpd2pc)) %>%
+  # slice(1:20)%>% 
+  arrange(prev_year_gpd2pc)
+top_gdp_countries$country <- factor(top_gdp_countries$country, levels = top_gdp_countries$country)
+top_gdp_countries <- top_gdp_countries %>%
+  filter(prev_year_co2pc<0)%>%
+  mutate(difference = prev_year_gpd2pc - prev_year_co2pc) %>%
+  arrange(desc(difference))
+
+
+
+energy_mix <- function(country, energy) {
+  energy %>% 
+    select(1:2, 4:12) %>%
+    pivot_longer(cols = 3:11, names_to = "source", values_to = "value") %>%
+    filter(country == country, year >= 2000, value > 0) %>%
+    mutate(source = fct_reorder(source, value, max), na.rm=TRUE) %>%
+    drop_na(value)
+}
+
+
+countries_to_plot <- countries %>% 
+   filter(!is.na(country))%>%
+  head(15) %>%
+  pull(country)
+
+# Get the energy mix data for all countries
+all_countries_data <- lapply(countries_to_plot, function(country) energy_mix(country, energy)) %>%
+  bind_rows() %>%
+  mutate(country = factor(country, levels = countries_to_plot))
+
+all_countries_data <- all_countries_data %>%
+  filter(!is.na(country)) %>%
+  droplevels() # Removes unused factor levels, including NA if present
+
+
+# Create the plot
+percent_energy <- ggplot(all_countries_data, aes(x = year, y = value, fill = source)) +
+  geom_area(color = "grey90", alpha = 0.5, position = "fill") +
+  facet_wrap(~ country, ncol = 5) + # Change ncol to 5 for a 3x5 grid
+  theme_bw() +
+  theme( axis.text.x = element_text(size=8, angle=90))+
+  scale_fill_manual(values = class_colors,  
+                    #labels = c("Coal", "Gas", "Hydro", "Nuclear", "Oil", "Other Renewables")
+                    )+
+  #scale_fill_viridis(discrete = TRUE, option = "H") +
+  scale_y_continuous(labels = percent) +
+  labs(title = "Energy Production Mix for Selected Countries",
+       x = NULL, y = NULL, fill = "Source")
+
+
+percent_energy
+```
+
+From the graphs we can see the distribution of the different sources of electricity across multiple countries. We can see a common trend that the developed countries mostly have moved away from traditional polluting energy sources towards more greener sources of energy such as hydro, nuclear, bio fuel etc. The developing and under developed countries are still very much dependent on the energy sources such as coal,gas and oil. Also under careful analysis we can see that eve developed countries with high population is also heavily dependent on sources such as coal. We can see that a number of countries has decoupled economic growth from energy use.
+
+
+## Conclusion:
+
+As we traverse the complexities of energy, emissions, and economic growth, a nuanced narrative of global progress unfurls. This article invites scholars, policymakers, and stakeholders to join a collective exploration of the intricate dance shaping our shared future. By unraveling the stories within the data, we contribute to a holistic understanding of the pathway toward sustainable development, where the melody of economic progress harmonizes seamlessly with the imperative of environmental responsibility.
 
 
 
